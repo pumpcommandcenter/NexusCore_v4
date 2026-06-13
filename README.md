@@ -3664,4 +3664,922 @@ pub async fn update_freeze_authority(
         .map_err(|e| ServerFnError::ServerError(e.to_string()))
 }
 cargo clean && cargo leptos watch
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { 
+  Zap, TrendingUp, Users, DollarSign, Bell, Search, ExternalLink 
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
+
+import AlertsDrawer from '@/components/AlertsDrawer';
+import { connectToNexusCoreBridge } from '@/lib/websocket';
+
+export default function NexusCoreCommandCenter() {
+  const { publicKey, connected } = useWallet();
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [tradeStatus, setTradeStatus] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [liveEvents, setLiveEvents] = useState<any[]>([]);
+
+  // Connect to real-time Helius WebSocket bridge
+  useEffect(() => {
+    const socket = connectToNexusCoreBridge();
+
+    const handleHeliusEvent = (e: any) => {
+      const event = e.detail;
+      setLiveEvents(prev => [event, ...prev].slice(0, 20)); // Keep last 20 events
+    };
+
+    window.addEventListener('helius-event', handleHeliusEvent);
+
+    return () => {
+      window.removeEventListener('helius-event', handleHeliusEvent);
+    };
+  }, []);
+
+  // Data fetching
+  const { data: stats } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => fetch('/api/stats').then(res => res.json()),
+    refetchInterval: 30000,
+  });
+
+  const { data: activities = [] } = useQuery({
+    queryKey: ['activities'],
+    queryFn: () => fetch('/api/activities').then(res => res.json()),
+    refetchInterval: 45000,
+  });
+
+  const bondingProgress = 67.4;
+
+  // Explorer Search
+  const handleExplorerSearch = async () => {
+    if (!searchQuery) return;
+
+    const isWallet = searchQuery.length > 30;
+    const endpoint = isWallet 
+      ? `/api/explorer/wallet?wallet=${searchQuery}` 
+      : `/api/explorer/token?mint=${searchQuery}`;
+
+    try {
+      const res = await fetch(endpoint);
+      const data = await res.json();
+      setTradeStatus(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setTradeStatus('Explorer search failed');
+    }
+    setTimeout(() => setTradeStatus(''), 8000);
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-white">
+      {/* Header */}
+      <div className="sticky top-0 z-50 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur-xl">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-yellow-500 to-amber-600 flex items-center justify-center">
+              <Zap className="w-5 h-5 text-black" />
+            </div>
+            <div>
+              <div className="font-bold text-2xl tracking-tight">NEXUSCORE</div>
+              <div className="text-[10px] text-zinc-500 -mt-1">COMMAND CENTER • $PUMP</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Explorer Search */}
+            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-2xl px-3">
+              <input
+                type="text"
+                placeholder="Search wallet or token..."
+                className="bg-transparent px-3 py-2 text-sm outline-none w-72"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleExplorerSearch()}
+              />
+              <Search className="w-4 h-4 text-zinc-500 cursor-pointer" onClick={handleExplorerSearch} />
+            </div>
+
+            {/* Alerts */}
+            <button 
+              onClick={() => setShowAlerts(true)}
+              className="relative p-2 hover:bg-zinc-900 rounded-xl transition-colors"
+            >
+              <Bell className="w-5 h-5" />
+              {liveEvents.length > 0 && (
+                <div className="absolute top-1 right-1 w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+              )}
+            </button>
+
+            <WalletMultiButton className="!bg-zinc-900 !border !border-yellow-600/60 !rounded-2xl" />
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-6 pt-8 pb-16">
+        {/* Status Toast */}
+        <AnimatePresence>
+          {tradeStatus && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              exit={{ opacity: 0 }}
+              className="mb-6 p-4 rounded-2xl bg-zinc-900 border border-yellow-600/30 text-center text-sm font-mono whitespace-pre-wrap"
+            >
+              {tradeStatus}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* Wallet Status */}
+          <div className="lg:col-span-5">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6">
+              <div className="font-semibold flex items-center gap-2 mb-4">
+                <Users className="w-5 h-5" /> WALLET STATUS
+              </div>
+              {!connected ? (
+                <div className="text-center py-6">
+                  <WalletMultiButton className="!w-full !py-4 !rounded-2xl !bg-gradient-to-r from-yellow-600 to-amber-600" />
+                  <p className="text-xs text-zinc-500 mt-3">Phantom • Backpack • Solflare</p>
+                </div>
+              ) : (
+                <div className="font-mono text-sm break-all">{publicKey?.toBase58()}</div>
+              )}
+            </div>
+          </div>
+
+          {/* Live Stats */}
+          <div className="lg:col-span-7">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6">
+              <div className="font-semibold flex items-center gap-2 mb-5">
+                <TrendingUp className="w-5 h-5" /> LIVE ON-CHAIN STATS
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
+                  <div className="text-xs text-zinc-500">TOTAL TRANSFERS</div>
+                  <div className="text-3xl font-mono font-bold mt-1">
+                    {stats?.totalTransfers?.toLocaleString() || '—'}
+                  </div>
+                </div>
+                <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
+                  <div className="text-xs text-zinc-500">TREASURY BALANCE</div>
+                  <div className="text-3xl font-mono font-bold mt-1 text-yellow-400">
+                    {stats?.treasuryBalance || '—'} $PUMP
+                  </div>
+                </div>
+                <div className="bg-zinc-950 rounded-xl p-4 border border-zinc-800">
+                  <div className="text-xs text-zinc-500">TRANSFER TAX</div>
+                  <div className="text-3xl font-mono font-bold mt-1 text-yellow-400">1%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activity + Live Helius Events */}
+          <div className="lg:col-span-7">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6">
+              <div className="font-semibold mb-4 flex items-center justify-between">
+                <span>RECENT ACTIVITY + LIVE HELIUS</span>
+                <span className="text-xs text-yellow-400">REAL-TIME</span>
+              </div>
+              <div className="space-y-2 max-h-[320px] overflow-auto pr-2 text-sm">
+                {[...activities, ...liveEvents].slice(0, 12).map((item, index) => (
+                  <div key={index} className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
+                    {item.type === 'helius-event' ? (
+                      <div className="text-yellow-400">Helius Event: {item.channel}</div>
+                    ) : (
+                      <div>{item.type?.toUpperCase()} • {item.amount} $PUMP</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Treasury */}
+          <div className="lg:col-span-5">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6">
+              <div className="font-semibold mb-4 flex items-center gap-2">
+                <DollarSign className="w-5 h-5" /> TAX &amp; TREASURY
+              </div>
+              <button 
+                onClick={() => setTradeStatus('Withdrawal feature coming soon with Squads Multisig')}
+                className="w-full py-4 bg-gradient-to-r from-yellow-600 to-amber-600 text-black font-bold rounded-2xl hover:from-yellow-500 hover:to-amber-500 transition-all"
+              >
+                WITHDRAW FEES
+              </button>
+            </div>
+          </div>
+
+          {/* Trade & Bridge */}
+          <div className="lg:col-span-12">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6">
+              <div className="font-semibold mb-4">TRADE &amp; BRIDGE</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <button onClick={() => window.open('https://jup.ag', '_blank')} className="py-4 bg-gradient-to-r from-yellow-600 to-amber-600 text-black font-bold rounded-2xl">
+                  SWAP ON JUPITER
+                </button>
+                <button onClick={() => window.open('https://wormhole.com', '_blank')} className="py-4 bg-zinc-800 hover:bg-zinc-700 border border-yellow-600/50 rounded-2xl font-bold">
+                  WORMHOLE BRIDGE
+                </button>
+                <button onClick={() => window.open('https://layerzeroscan.com', '_blank')} className="py-4 bg-zinc-800 hover:bg-zinc-700 border border-yellow-600/50 rounded-2xl font-bold">
+                  LAYERZERO (OFT)
+                </button>
+                <button onClick={() => window.open('https://app.uniswap.org', '_blank')} className="py-4 bg-zinc-800 hover:bg-zinc-700 border border-yellow-600/50 rounded-2xl font-bold">
+                  UNISWAP (BASE)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Bonding Curve */}
+          <div className="lg:col-span-12">
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-6">
+              <div className="flex justify-between text-sm mb-3">
+                <span className="font-semibold">BONDING CURVE PROGRESS</span>
+                <span className="font-mono text-yellow-400">{bondingProgress}%</span>
+              </div>
+              <div className="w-full bg-zinc-800 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="h-3 rounded-full bg-gradient-to-r from-yellow-500 to-amber-500 transition-all duration-700" 
+                  style={{ width: `${bondingProgress}%` }} 
+                />
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Alerts Drawer */}
+      <AlertsDrawer isOpen={showAlerts} onClose={() => setShowAlerts(false)} />
+    </div>
+  );
+}
+'use client';
+
+import React from 'react';
+import { X, Bell } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+interface AlertsDrawerProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export default function AlertsDrawer({ isOpen, onClose }: AlertsDrawerProps) {
+  // In production, this would come from state, WebSocket, or API
+  const alerts = [
+    {
+      id: 1,
+      type: 'security',
+      title: 'Post-Quantum Security Active',
+      message: 'Hybrid Dilithium2 + Ed25519 signatures enabled for all high-value actions.',
+      timestamp: new Date().toISOString(),
+    },
+    {
+      id: 2,
+      type: 'system',
+      title: 'Helius Real-time Connected',
+      message: 'Live transaction streaming via Rust microservice is active.',
+      timestamp: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
+    },
+    {
+      id: 3,
+      type: 'event',
+      title: 'New Token Launch Detected',
+      message: 'A new token was launched via the bonding curve.',
+      timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+    },
+  ];
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex justify-end">
+      <div 
+        className="absolute inset-0 bg-black/60" 
+        onClick={onClose} 
+      />
+      
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="relative w-full max-w-md bg-zinc-900 border-l border-zinc-800 flex flex-col h-full"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800">
+          <div className="flex items-center gap-3">
+            <Bell className="w-5 h-5 text-yellow-400" />
+            <h2 className="text-xl font-semibold">Alerts</h2>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-zinc-800 rounded-xl transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Alerts List */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {alerts.length === 0 ? (
+            <div className="text-center text-zinc-500 py-12">
+              No alerts at the moment.
+            </div>
+          ) : (
+            alerts.map((alert) => (
+              <div 
+                key={alert.id} 
+                className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-medium text-yellow-400">{alert.title}</div>
+                    <p className="text-sm text-zinc-400 mt-1">{alert.message}</p>
+                  </div>
+                </div>
+                <div className="text-[10px] text-zinc-500 mt-3">
+                  {new Date(alert.timestamp).toLocaleTimeString()}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-6 border-t border-zinc-800 text-xs text-zinc-500">
+          Alerts are powered by real-time Helius events and system monitoring.
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+// frontend/src/lib/websocket.ts
+import { io, Socket } from 'socket.io-client';
+
+let socket: Socket | null = null;
+
+export function connectToNexusCoreBridge() {
+  if (socket) return socket;
+
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+
+  socket = io(backendUrl, {
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: 5,
+  });
+
+  socket.on('connect', () => {
+    console.log('[WebSocket] Connected to NexusCore Bridge');
+  });
+
+  socket.on('helius-event', (event) => {
+    // Dispatch as custom event so any component can listen
+    window.dispatchEvent(new CustomEvent('helius-event', { detail: event }));
+  });
+
+  socket.on('disconnect', () => {
+    console.log('[WebSocket] Disconnected from NexusCore Bridge');
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error('[WebSocket] Connection error:', err);
+  });
+
+  return socket;
+}
+
+export function disconnectFromBridge() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+}
+
+export default socket;
+import AlertsDrawer from '@/components/AlertsDrawer';
+import { connectToNexusCoreBridge } from '@/lib/websocket';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { connectToNexusCoreBridge } from '@/lib/websocket';
+
+export interface HeliusEvent {
+  channel: string;
+  data: any;
+  timestamp: number;
+}
+
+export function useHeliusEvents(maxEvents: number = 50) {
+  const [events, setEvents] = useState<HeliusEvent[]>([]);
+
+  useEffect(() => {
+    // Ensure connection to the bridge
+    connectToNexusCoreBridge();
+
+    const handleEvent = (e: CustomEvent) => {
+      const newEvent: HeliusEvent = {
+        channel: e.detail.channel,
+        data: e.detail.data,
+        timestamp: e.detail.timestamp || Date.now(),
+      };
+
+      setEvents(prev => [newEvent, ...prev].slice(0, maxEvents));
+    };
+
+    window.addEventListener('helius-event', handleEvent as EventListener);
+
+    return () => {
+      window.removeEventListener('helius-event', handleEvent as EventListener);
+    };
+  }, [maxEvents]);
+
+  return events;
+}
+const events = useHeliusEvents(30);
+
+// Example: Show latest event
+{events.length > 0 && (
+  <div>Latest Helius Event: {events[0].channel}</div>
+)}
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use std::sync::Arc;
+use tracing::info;
+
+mod handlers;
+mod websocket;
+
+use handlers::{assets, transactions};
+use websocket::helius_ws_handler;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub helius: helius::Helius,
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+
+    let helius = helius::Helius::new("YOUR_API_KEY", helius::types::Cluster::MainnetBeta)
+        .expect("Failed to create Helius client");
+
+    let state = AppState { helius: helius.clone() };
+
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/metrics", get(handlers::metrics::metrics_handler))
+        .route("/assets/owner", post(assets::get_assets_by_owner))
+        .route("/assets/search", post(assets::search_assets))
+        .route("/assets/proof", post(assets::get_asset_proof))
+        .route("/transactions/parse", post(transactions::parse_transactions))
+        .route("/ws/helius", get(helius_ws_handler))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    info!("🚀 Helius Microservice running on port 8080");
+    axum::serve(listener, app).await.unwrap();
+}
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::response::Response;
+use futures::{sink::SinkExt, stream::StreamExt};
+use tracing::info;
+
+pub async fn helius_ws_handler(ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(handle_socket)
+}
+
+async fn handle_socket(mut socket: WebSocket) {
+    info!("Helius WebSocket client connected");
+
+    // In production: Connect to Helius WebSocket and forward events here
+    // For now we keep connection alive and can push messages from other parts of the app
+
+    while let Some(Ok(msg)) = socket.next().await {
+        if let Ok(text) = msg.to_text() {
+            if text == "ping" {
+                let _ = socket.send(axum::extract::ws::Message::Text("pong".into())).await;
+            }
+        }
+    }
+
+    info!("Helius WebSocket client disconnected");
+}
+
+// Example function to broadcast to all connected clients (can be called from other modules)
+pub async fn broadcast_event(event: serde_json::Value) {
+    // In a real implementation, you would keep a list of connected sockets
+    // and broadcast to them. This is a simplified version.
+    tracing::info!("Broadcasting event: {:?}", event);
+}
+useEffect(() => {
+  const handleHeliusEvent = (e: any) => {
+    const event = e.detail;
+
+    // Dispatch to Alerts system
+    const alertEvent = new CustomEvent('new-alert', {
+      detail: {
+        id: Date.now(),
+        type: 'helius',
+        title: `Helius Event: ${event.channel}`,
+        message: `New activity detected on chain`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    window.dispatchEvent(alertEvent);
+  };
+
+  window.addEventListener('helius-event', handleHeliusEvent);
+
+  return () => {
+    window.removeEventListener('helius-event', handleHeliusEvent);
+  };
+}, []);
+use axum::{routing::{get, post}, Router};
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tracing::info;
+
+mod handlers;
+mod websocket;
+
+use handlers::{assets, transactions};
+use websocket::{helius_ws_handler, AppState};
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+
+    let helius = helius::Helius::new("YOUR_API_KEY", helius::types::Cluster::MainnetBeta)
+        .expect("Failed to create Helius client");
+
+    // Broadcast channel for WebSocket messages (capacity = 100)
+    let (tx, _rx) = broadcast::channel::<serde_json::Value>(100);
+
+    let state = AppState {
+        helius,
+        broadcast_tx: tx.clone(),
+    };
+
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/metrics", get(handlers::metrics::metrics_handler))
+        .route("/assets/owner", post(assets::get_assets_by_owner))
+        .route("/assets/search", post(assets::search_assets))
+        .route("/assets/proof", post(assets::get_asset_proof))
+        .route("/transactions/parse", post(transactions::parse_transactions))
+        .route("/ws/helius", get(helius_ws_handler))
+        .with_state(state);
+
+    // Example: You can send messages from anywhere using `state.broadcast_tx.send(...)`
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    info!("🚀 Helius Microservice with WebSocket broadcasting running on :8080");
+    axum::serve(listener, app).await.unwrap();
+}
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::extract::State;
+use axum::response::Response;
+use futures::{sink::SinkExt, stream::StreamExt};
+use tokio::sync::broadcast;
+use tracing::info;
+
+use crate::AppState;
+
+pub async fn helius_ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> Response {
+    ws.on_upgrade(move |socket| handle_socket(socket, state.broadcast_tx))
+}
+
+async fn handle_socket(mut socket: WebSocket, mut rx: broadcast::Receiver<serde_json::Value>) {
+    info!("Helius WebSocket client connected");
+
+    // Spawn task to forward broadcast messages to this client
+    let mut send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            if socket
+                .send(axum::extract::ws::Message::Text(msg.to_string()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    // Keep connection alive
+    while let Some(Ok(_msg)) = socket.next().await {}
+
+    send_task.abort();
+    info!("Helius WebSocket client disconnected");
+}
+state.broadcast_tx.send(serde_json::json!({
+    "type": "helius_event",
+    "channel": "token_transfer",
+    "data": payload
+})).ok();
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { X, Bell } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+interface Alert {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  timestamp: string;
+}
+
+interface AlertsDrawerProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export default function AlertsDrawer({ isOpen, onClose }: AlertsDrawerProps) {
+  const [alerts, setAlerts] = useState<Alert[]>([
+    {
+      id: 1,
+      type: 'security',
+      title: 'Post-Quantum Security Active',
+      message: 'Hybrid Dilithium2 signatures enabled for high-value actions.',
+      timestamp: new Date().toISOString(),
+    },
+  ]);
+
+  // Listen for real-time alerts from Helius / system
+  useEffect(() => {
+    const handleNewAlert = (e: CustomEvent) => {
+      const newAlert: Alert = e.detail;
+      setAlerts(prev => [newAlert, ...prev].slice(0, 30)); // Keep last 30
+    };
+
+    window.addEventListener('new-alert', handleNewAlert as EventListener);
+
+    return () => {
+      window.removeEventListener('new-alert', handleNewAlert as EventListener);
+    };
+  }, []);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex justify-end">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        className="relative w-full max-w-md bg-zinc-900 border-l border-zinc-800 flex flex-col h-full"
+      >
+        <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800">
+          <div className="flex items-center gap-3">
+            <Bell className="w-5 h-5 text-yellow-400" />
+            <h2 className="text-xl font-semibold">Alerts</h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-xl">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {alerts.length === 0 ? (
+            <div className="text-center text-zinc-500 py-12">No alerts yet.</div>
+          ) : (
+            alerts.map((alert) => (
+              <div key={alert.id} className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
+                <div className="font-medium text-yellow-400">{alert.title}</div>
+                <p className="text-sm text-zinc-400 mt-1">{alert.message}</p>
+                <div className="text-[10px] text-zinc-500 mt-3">
+                  {new Date(alert.timestamp).toLocaleTimeString()}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+use axum::{extract::State, Json};
+use serde_json::json;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+#[derive(Default)]
+pub struct Metrics {
+    pub requests_total: AtomicU64,
+    pub websocket_connections: AtomicU64,
+    pub helius_api_calls: AtomicU64,
+    pub errors_total: AtomicU64,
+}
+
+pub async fn metrics_handler(State(state): State<crate::AppState>) -> Json<serde_json::Value> {
+    let metrics = &state.metrics;
+
+    Json(json!({
+        "service": "helius-microservice",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "metrics": {
+            "requests_total": metrics.requests_total.load(Ordering::Relaxed),
+            "websocket_connections": metrics.websocket_connections.load(Ordering::Relaxed),
+            "helius_api_calls": metrics.helius_api_calls.load(Ordering::Relaxed),
+            "errors_total": metrics.errors_total.load(Ordering::Relaxed),
+        }
+    }))
+}
+#[derive(Clone)]
+pub struct AppState {
+    pub helius: helius::Helius,
+    pub broadcast_tx: tokio::sync::broadcast::Sender<serde_json::Value>,
+    pub metrics: Arc<crate::handlers::metrics::Metrics>,
+}
+.route("/metrics", get(handlers::metrics::metrics_handler))
+- job_name: 'helius-service'
+  static_configs:
+    - targets: ['helius-service:8080']
+  metrics_path: /metrics
+  scrape_interval: 15s
+[dependencies]
+prometheus = "0.13"
+lazy_static = "1.4"
+use axum::response::Response;
+use lazy_static::lazy_static;
+use prometheus::{register_counter, register_gauge, Counter, Gauge, TextEncoder, Encoder};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+lazy_static! {
+    pub static ref REQUESTS_TOTAL: Counter = register_counter!(
+        "helius_requests_total",
+        "Total number of HTTP requests"
+    ).unwrap();
+
+    pub static ref WEBSOCKET_CONNECTIONS: Gauge = register_gauge!(
+        "helius_websocket_connections",
+        "Current number of active WebSocket connections"
+    ).unwrap();
+
+    pub static ref HELIUS_API_CALLS: Counter = register_counter!(
+        "helius_api_calls_total",
+        "Total calls made to Helius API"
+    ).unwrap();
+
+    pub static ref ERRORS_TOTAL: Counter = register_counter!(
+        "helius_errors_total",
+        "Total number of errors"
+    ).unwrap();
+}
+
+pub async fn metrics_handler() -> Response<String> {
+    let encoder = TextEncoder::new();
+    let metric_families = prometheus::gather();
+    let mut buffer = Vec::new();
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+
+    Response::builder()
+        .header("Content-Type", encoder.format_type())
+        .body(String::from_utf8(buffer).unwrap())
+        .unwrap()
+}
+.route("/metrics", get(handlers::metrics::metrics_handler))
+use crate::handlers::metrics::{REQUESTS_TOTAL, HELIUS_API_CALLS};
+
+REQUESTS_TOTAL.inc();
+HELIUS_API_CALLS.inc();
+use crate::handlers::metrics::WEBSOCKET_CONNECTIONS;
+
+pub async fn helius_ws_handler(...) {
+    WEBSOCKET_CONNECTIONS.inc();
+    
+    // ... connection logic ...
+
+    WEBSOCKET_CONNECTIONS.dec(); // on disconnect
+}
+[dependencies]
+moka = { version = "0.12", features = ["future"] }
+tokio = { version = "1", features = ["full"] }
+# ... other dependencies
+use moka::future::Cache;
+use std::time::Duration;
+
+pub fn create_das_cache() -> Cache<String, serde_json::Value> {
+    Cache::builder()
+        .max_capacity(10_000)                    // Max 10k entries
+        .time_to_live(Duration::from_secs(300))  // 5 minutes TTL
+        .build()
+}
+use crate::cache::create_das_cache;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub helius: helius::Helius,
+    pub broadcast_tx: tokio::sync::broadcast::Sender<serde_json::Value>,
+    pub das_cache: moka::future::Cache<String, serde_json::Value>,
+}
+
+#[tokio::main]
+async fn main() {
+    // ... existing code
+
+    let das_cache = create_das_cache();
+
+    let state = AppState {
+        helius,
+        broadcast_tx: tx.clone(),
+        das_cache,
+    };
+
+    // ... router setup
+}
+use axum::{extract::State, Json};
+use helius::types::GetAssetsByOwnerRequest;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct OwnerRequest {
+    pub owner: String,
+    pub page: Option<u32>,
+    pub limit: Option<u32>,
+}
+
+pub async fn get_assets_by_owner(
+    State(state): State<crate::AppState>,
+    Json(payload): Json<OwnerRequest>,
+) -> Json<serde_json::Value> {
+    let cache_key = format!("assets_owner:{}:{}:{}", 
+        payload.owner, 
+        payload.page.unwrap_or(1), 
+        payload.limit.unwrap_or(100)
+    );
+
+    // Try cache first
+    if let Some(cached) = state.das_cache.get(&cache_key).await {
+        return Json(cached);
+    }
+
+    let request = GetAssetsByOwnerRequest {
+        owner_address: payload.owner.clone(),
+        page: payload.page.unwrap_or(1),
+        limit: payload.limit.unwrap_or(100),
+        display_options: None,
+    };
+
+    match state.helius.rpc().get_assets_by_owner(request).await {
+        Ok(response) => {
+            let result = serde_json::json!({
+                "success": true,
+                "assets": response.items,
+                "total": response.total
+            });
+
+            // Store in cache
+            state.das_cache.insert(cache_key, result.clone()).await;
+
+            Json(result)
+        }
+        Err(e) => Json(serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+    }
+}
+{
+  "root": " Merkle root hash",
+  "proof": ["hash1", "hash2", ...],
+  "node_index": 123,
+  "leaf": "leaf hash",
+  "tree_id": "Merkle tree address"
+}
+pub async fn get_asset_proof(
+    State(state): State<crate::AppState>,
+    Json(payload): Json<helius::types::GetAssetProofRequest>,
+) -> Json<serde_json::Value> {
+    match state.helius.rpc().get_asset_proof(payload).await {
+        Ok(proof) => Json(serde_json::json!({
+            "success": true,
+            "proof": proof
+        })),
+        Err(e) => Json(serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+    }
+}
 
